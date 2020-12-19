@@ -1,0 +1,9 @@
+# file
+*.pyc
+*.ipynb
+
+# dirs
+.vscode/
+src/savitr_pe.egg*
+.ipynb_checkpoints
+media/
