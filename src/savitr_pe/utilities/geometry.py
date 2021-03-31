@@ -3,6 +3,7 @@ Geometry primitives and algorithms
 """
 
 import numpy as np
+import torch
 
 def project_3d_points(intrinsic, extrinsic, points):
     '''
@@ -161,3 +162,58 @@ def center_of_mass(joint3d):
     '''
 
     return np.mean(joint3d,axis=1)
+
+
+def perspective_projection(points, rotation, translation,
+                           focal_length, camera_center):
+    """
+    This function computes the perspective projection of a set of points.
+    Input:
+        points (bs, N, 3): 3D points
+        rotation (bs, 3, 3): Camera rotation
+        translation (bs, 3): Camera translation
+        focal_length (bs,) or scalar: Focal length
+        camera_center (bs, 2): Camera center
+    """
+    batch_size = points.shape[0]
+    K = torch.zeros([batch_size, 3, 3], device=points.device)
+    K[:,0,0] = focal_length[0]
+    K[:,1,1] = focal_length[1]
+    K[:,2,2] = 1.
+    K[:,:-1, -1] = camera_center
+
+    # Transform points
+    points = torch.einsum('bij,bkj->bki', rotation, points)
+    points = points + translation.unsqueeze(1)
+
+    # Apply perspective distortion
+    projected_points = points / points[:,:,-1].unsqueeze(-1)
+
+    # Apply camera intrinsics
+    projected_points = torch.einsum('bij,bkj->bki', K, projected_points)
+
+    return projected_points[:, :, :-1]
+
+def transform_smpl(trans_mat,smplvertices=None,smpljoints=None, orientation=None, smpltrans=None):
+    if smplvertices is not None:
+        verts =  torch.bmm(trans_mat[:,:3,:3],smplvertices.permute(0,2,1)).permute(0,2,1) +\
+                    trans_mat[:,:3,3].unsqueeze(1)
+    else:
+        verts = None
+    if smpljoints is not None:
+        joints = torch.bmm(trans_mat[:,:3,:3],smpljoints.permute(0,2,1)).permute(0,2,1) +\
+                         trans_mat[:,:3,3].unsqueeze(1)
+    else:
+        joints = None
+    
+    if smpltrans is not None:
+        trans = torch.bmm(trans_mat[:,:3,:3],smpltrans.unsqueeze(2)).squeeze(2) +\
+                         trans_mat[:,:3,3]
+    else:
+        trans = None
+
+    if orientation is not None:
+        orient = torch.bmm(trans_mat[:,:3,:3],orientation)
+    else:
+        orient = None    
+    return verts, joints, orient, trans

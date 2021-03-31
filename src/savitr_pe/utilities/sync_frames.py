@@ -49,7 +49,7 @@ def frame_extract_and_sync(vid_file,outdir,time_offset=0):
     while(cap.isOpened()):
         frame_exists, curr_frame = cap.read()
         if frame_exists:
-            cv2.imwrite(os.path.join(outdir,str(int(cap.get(cv2.CAP_PROP_POS_MSEC)+time_offset))+".jpg"),curr_frame)
+            cv2.imwrite(os.path.join(outdir,"{:013d}".format(int(cap.get(cv2.CAP_PROP_POS_MSEC)+time_offset))+".jpg"),curr_frame)
         else:
             break
 
