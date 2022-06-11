@@ -4,9 +4,48 @@ import glob
 import argparse
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import os.path as osp
+import os
 
 # termination criteria
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+
+def extract_frames(calib_dir):
+
+    os.mkdir(osp.join(calib_dir,"calib_images"))
+    imdir = osp.join(calib_dir,"calib_images")
+
+    vid_file = glob.glob(osp.join(calib_dir,"*.mp4"))[0]
+    txt_file = glob.glob(osp.join(calib_dir,"*.txt"))[0]
+    
+    with(open(txt_file,"r")) as f:
+        tstamps = f.readlines()
+    
+    vid_tstamp = vid_file.split("_")[-1].split(".")[0]
+    tstamps = list(filter(None,tstamps[0].split(" ")))
+    tstamps = np.array([int(x)-int(vid_tstamp) for x in tstamps])
+    
+    # read file
+    cap = cv2.VideoCapture(vid_file)
+
+    # get fps
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    frame_idcs = np.round((tstamps/1000) * fps).astype(np.int)
+
+    curr_frame_idx = 0
+    # read and save frames
+    while(cap.isOpened()):
+        frame_exists, curr_frame = cap.read()
+        if frame_exists:
+            if curr_frame_idx in frame_idcs:
+                cv2.imwrite(osp.join(imdir,"{:013d}".format(curr_frame_idx)+".jpg"),curr_frame)
+            curr_frame_idx += 1
+        else:
+            break
+
+    return imdir
 
 
 def calibrate(dirpath, prefix, image_format, square_size, width=8, height=6):
@@ -25,7 +64,7 @@ def calibrate(dirpath, prefix, image_format, square_size, width=8, height=6):
         dirpath = dirpath[:-1]
 
     images = glob.glob(dirpath+'/' + prefix + '*.' + image_format)
-
+    
     for fname in tqdm(images):
         img = cv2.imread(fname)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

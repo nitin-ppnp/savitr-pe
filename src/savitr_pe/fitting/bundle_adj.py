@@ -112,6 +112,9 @@ def gmcclure(a,b,sigma=30):
 batch_size = ds.frames_keys.shape[0]
 batch_size_m1 = len(ds.frames2m1_map)
 batch_size_m2 = len(ds.frames2m2_map)
+im0_res = np.array(cv2.imread(ds.cams_images_paths[0][0]).shape[1::-1])
+im1_res = np.array(cv2.imread(ds.cams_images_paths[1][0]).shape[1::-1])
+
 pl_smplxbeta = torch.zeros(10,requires_grad=True).float().to(device).detach().clone()
 pl_smplxz = torch.zeros(batch_size,32,requires_grad=True).float().to(device).detach().clone()
 pl_smplxphi = torch.eye(3,requires_grad=True).float().expand(batch_size,-1,-1).to(device).detach().clone()
@@ -122,6 +125,13 @@ pl_extr0 = torch.eye(4).float().to(device)
 pl_rot1 = torch.eye(3,requires_grad=True).float().to(device).detach().clone()
 pl_trans1 = torch.zeros(3,requires_grad=True).float().to(device).detach().clone()
 pl_extr1 = torch.cat([torch.cat([pl_rot1,pl_trans1.unsqueeze(1)],dim=1),torch.tensor([0,0,0,1]).to(device).float().unsqueeze(0)],dim=0)
+
+pl_intr0[:2,2] = torch.from_numpy(im0_res//2).to(device)
+pl_intr1[:2,2] = torch.from_numpy(im1_res//2).to(device)
+pl_intr0[0,0] /= 5
+pl_intr0[1,1] /= 5
+pl_intr1[0,0] /= 5
+pl_intr1[1,1] /= 5
 
 apose_m1 = torch.from_numpy(ds.apose_m1).float().to(device)
 apose_m2 = torch.from_numpy(ds.apose_m2).float().to(device)
@@ -138,21 +148,26 @@ pl_smplxz.requires_grad = True
 pl_smplxphi.requires_grad = True
 pl_smplxtau.requires_grad = True
 pl_smplxbeta.requires_grad = True
-pl_rot1.requires_grad = True
-pl_trans1.requires_grad = True
+# pl_rot1.requires_grad = True
+# pl_trans1.requires_grad = True
 
 optim = torch.optim.Adam([pl_smplxz,
                                 pl_smplxphi,
                                 pl_smplxtau,
-                                pl_smplxbeta,
-                                pl_rot1,
-                                pl_trans1],
+                                pl_smplxbeta],
                                 lr=0.01)
-
+renderer0 = Renderer(focal_length=[pl_intr0[0,0],pl_intr0[1,1]], 
+                                img_res=np.array(im0_res),
+                                center=pl_intr0[:2,2],
+                                faces=smplx_model.f.data.cpu())
+renderer1 = Renderer(focal_length=[pl_intr1[0,0],pl_intr1[1,1]], 
+                                img_res=np.array(im1_res),
+                                center=pl_intr1[:2,2],
+                                faces=smplx_model.f.data.cpu())
 for iter in tqdm(range(1000)):
 
-    image0 = cv2.imread(ds.cams_images_paths[0][100])/255.
-    image1 = cv2.imread(ds.cams_images_paths[1][100])/255.
+    image0 = cv2.imread(ds.cams_images_paths[0][0])/255.
+    image1 = cv2.imread(ds.cams_images_paths[1][0])/255.
     
     pl_smplxtheta = vp_model.decode(pl_smplxz)["pose_body"].reshape(-1,63)
     smplx_out = smplx_model.forward(betas=pl_smplxbeta.unsqueeze(0).expand([batch_size,-1]), 
@@ -178,9 +193,9 @@ for iter in tqdm(range(1000)):
                                                     translation=pl_trans1.unsqueeze(0).expand([batch_size_m2,-1]),
                                                     focal_length=[pl_intr1[0,0],pl_intr1[1,1]],
                                                     camera_center=pl_intr1[:2,2]).squeeze(0)
-    
-    loss_2d = (apose_m1[:,:,2:]*loss_fun(joints2d0,apose_m1[:,:,:2])).mean() + \
-                (apose_m2[:,:,2:]*loss_fun(joints2d1,apose_m2[:,:,:2])).mean()
+    # import ipdb;ipdb.set_trace()
+    loss_2d = (apose_m1[:,:,2:]*loss_fun(joints2d0,apose_m1[:,:,:2])).mean() #+ \
+                # (apose_m2[:,:,2:]*loss_fun(joints2d1,apose_m2[:,:,:2])).mean()
 
     loss_vposer = torch.mul(pl_smplxz,pl_smplxz).mean()
 
@@ -195,24 +210,20 @@ for iter in tqdm(range(1000)):
     
     if iter % 100 == 0:
         # viz #############################
-        renderer0 = Renderer(focal_length=[pl_intr0[0,0],pl_intr0[1,1]], 
-                                img_res=np.array(cv2.imread(ds.cams_images_paths[0][0]).shape[1::-1]),
-                                center=pl_intr0[:2,2],
-                                faces=smplx_model.f.data.cpu())
-        renderer1 = Renderer(focal_length=[pl_intr1[0,0],pl_intr1[1,1]], 
-                                img_res=np.array(cv2.imread(ds.cams_images_paths[1][0]).shape[1::-1]),
-                                center=pl_intr1[:2,2],
-                                faces=smplx_model.f.data.cpu())
-        vis0 = renderer0(verts[100].detach().clone().cpu(),
+        vis0 = renderer0(verts[1].detach().clone().cpu(),
                                         pl_extr0[:3,3].detach().clone().cpu(),
                                         pl_extr0[:3,:3].detach().clone().cpu(),
                                         image0)
-        vis1 = renderer1(verts[100].detach().clone().cpu(),
+        vis1 = renderer1(verts[0].detach().clone().cpu(),
                                         pl_trans1.detach().clone().cpu(),
                                         pl_rot1.detach().clone().cpu(),
                                         image1)
         # vis0 = kp_viz(vis0,joints2d0[0])
         # vis1 = kp_viz(vis1,joints2d1[0])
+        
+        for i in range(24):
+            cv2.circle(vis0,tuple(joints2d0[i,:2].detach().cpu().numpy()),10,(255,255,255),-1)
+            cv2.circle(vis1,tuple(joints2d1[i,:2].detach().cpu().numpy()),10,(255,255,255),-1)
         
         cv2.imshow("im0",vis0[::3,::3])
         cv2.imshow("im1",vis1[::3,::3])

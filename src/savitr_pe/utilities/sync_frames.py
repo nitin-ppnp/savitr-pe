@@ -2,8 +2,10 @@ import numpy as np
 from pydub import AudioSegment
 import cv2
 import os
+import os.path as osp
+import pandas as pd
 
-def sync_audio(file0,file1):
+def sync_audio(file0,file1,start_idx=[0,0],end_idx=[-1,-1]):
     '''
     file0: first input file
     file1: second input file
@@ -18,8 +20,10 @@ def sync_audio(file0,file1):
     assert audio0.frame_rate == audio1.frame_rate
 
     # get samples
-    w0 = np.array(audio0.get_array_of_samples())/1e9
-    w1 = np.array(audio1.get_array_of_samples())/1e9
+    w0 = np.array(audio0.get_array_of_samples())[start_idx[0]:end_idx[0]]/1e9
+    w1 = np.array(audio1.get_array_of_samples())[start_idx[1]:end_idx[1]]/1e9
+
+    import ipdb; ipdb.set_trace()
 
     # correlation
     corr = np.correlate(w0,w1,"full")
@@ -45,12 +49,25 @@ def frame_extract_and_sync(vid_file,outdir,time_offset=0):
     # create out directory
     os.mkdir(outdir)
 
+    tstamp_file = ".".join(vid_file.split(".")[:-1])+"_timestamps.csv"
+
     # read and save frames
-    while(cap.isOpened()):
-        frame_exists, curr_frame = cap.read()
-        if frame_exists:
-            cv2.imwrite(os.path.join(outdir,"{:013d}".format(int(cap.get(cv2.CAP_PROP_POS_MSEC)+time_offset))+".jpg"),curr_frame)
-        else:
-            break
+    if osp.exists(tstamp_file):
+        tstamps = pd.read_csv(tstamp_file, header=None, usecols=[0]).to_numpy()
+        frame_num = 0
+        while(cap.isOpened()):
+            frame_exists, curr_frame = cap.read()
+            if frame_exists:
+                cv2.imwrite(os.path.join(outdir,"{:015d}".format(int(tstamps[frame_num])+time_offset)+".jpg"),curr_frame)
+                frame_num += 1
+            else:
+                break
+    else:
+        while(cap.isOpened()):
+            frame_exists, curr_frame = cap.read()
+            if frame_exists:
+                cv2.imwrite(os.path.join(outdir,"{:015d}".format(int(cap.get(cv2.CAP_PROP_POS_MSEC)+time_offset))+".jpg"),curr_frame)
+            else:
+                break
 
     cap.release()
