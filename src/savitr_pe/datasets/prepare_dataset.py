@@ -34,5 +34,6 @@ def prepare_dataset(dset_path,start_idx=None, end_idx=None):
         print("Offset file already exists")
 
 if __name__ == "__main__":
-    dset_path = "/home/nsaini/Datasets/opencam/BowlingDay"
-    prepare_dataset(dset_path,start_idx=[137800,137800,137800],end_idx=[1038700,1038700,1038700])
+    dset_path = "/home/nsaini/Datasets/opencam/VolleyDay"
+    prepare_dataset(dset_path,start_idx=[900000,900000,900000,900000],end_idx=[2100000,2100000,2100000,2100000])
+    # prepare_dataset(dset_path)

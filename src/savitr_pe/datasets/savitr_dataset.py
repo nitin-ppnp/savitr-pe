@@ -24,7 +24,7 @@ class savitr_dataset(Dataset):
         super().__init__()
         
         # Parse the dataset directory
-        self.cams_dirs = glob.glob(dir_path+"/*/")
+        self.cams_dirs = sorted(glob.glob(dir_path+"/*/"))
         vid_files = [glob.glob(os.path.join(x,"*.mp4"))[0] for x in self.cams_dirs]
         self.num_cams = len(self.cams_dirs)
         self.cam_names = [x.split("/")[-1].split(".")[0] for x in vid_files]
@@ -54,7 +54,7 @@ class savitr_dataset(Dataset):
         #         apose = np.reshape(apose_res[i][x]["people"][0]["pose_keypoints_2d"],(18,3))[al_map2smpl]
         #         apose[al_map2smpl==-1,:] = 0
         #         self.apose_res[i][x] = apose
-
+        
         opose_res = [pkl.load(open(osp.join(self.cams_dirs[i],self.cam_names[i] + "_openpose.pkl"),"rb")) for i in range(len(self.cams_dirs))]
         self.opose_res = []
         for i in range(len(opose_res)):
@@ -64,6 +64,7 @@ class savitr_dataset(Dataset):
                 if opose_pose.shape == ():
                     opose = np.zeros((24,3))
                 else:
+                    # get the 2d pose with biggest bounding box 
                     person_id = np.stack([opose_pose[i,opose_pose[i,:,2] != 0,:2].max(axis=0) - 
                             opose_pose[i,opose_pose[i,:,2] != 0,:2].min(axis=0) for i in range(opose_pose.shape[0])]).sum(1).argmax()
                     opose = opose_pose[person_id,op_map2smpl]
@@ -85,8 +86,10 @@ class savitr_dataset(Dataset):
         # create final tstamps
         self.tstamps_final = [self.tstamps[0][isect_idcs[0]]]
         for i in range(1,len(int_tstamps_offset_corr)):
+            import ipdb; ipdb.set_trace()
             closest_idcs = np.array([(np.abs(int_tstamps_offset_corr[i]-x)).argmin() for x in int_tstamps_offset_corr[0][isect_idcs[0]]])
             self.tstamps_final.append(self.tstamps[i][closest_idcs])
+            
 
         # get sensor data
         if use_sensor_data:
@@ -113,7 +116,10 @@ class savitr_dataset(Dataset):
         # get intrinsics
         self.cam_intr = []
         for c in range(self.num_cams):
-            self.cam_intr.append(camera_calib.load_coefficients(osp.join(self.cams_dirs[c],"calibration_params.yml"))[0])
+            calib_params_file = glob.glob(osp.join(self.cams_dirs[c],"*.yml"))
+            if len(calib_params_file) != 1:
+                import ipdb;ipdb.set_trace()
+            self.cam_intr.append(camera_calib.load_coefficients(calib_params_file[0])[0])
 
         self.cam_intr = np.stack(self.cam_intr)
 
@@ -159,30 +165,31 @@ class savitr_dataset(Dataset):
 
         full_img_pth_list = [list(x) for x in list(full_img_pth)]
 
-        # # get pare results
-        # pare_res = []
-        # pare_orient = []
-        # pare_cams = []
-        # for x in range(seq_len):
-        #     pred_pose = np.stack([joblib.load(osp.join(self.cams_dirs[c],
-        #                         self.cam_names[c]+"_pare",self.cam_names[c]+"_",
-        #                         "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_pose"][0] for c in range(self.num_cams)])
-        #     pred_cam = np.stack([joblib.load(osp.join(self.cams_dirs[c],
-        #                         self.cam_names[c]+"_pare",self.cam_names[c]+"_",
-        #                         "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_cam_t"][0] for c in range(self.num_cams)])
-        #     pare_res.append(np.stack([Rotation.from_matrix(pred_pose[:,i,:3,:3]).mean().as_rotvec() for i in range(1,22)]))
-        #     pare_orient.append(Rotation.from_matrix(pred_pose[:,0,:3,:3]).as_rotvec())
-        #     pare_cams.append(pred_cam)
+        # get pare results
+        pare_res = []
+        pare_orient = []
+        pare_cams = []
+        for x in range(seq_len):
+            import ipdb; ipdb.set_trace()
+            pred_pose = np.stack([joblib.load(osp.join(self.cams_dirs[c],
+                                self.cam_names[c]+"_pare",self.cam_names[c]+"_",
+                                "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_pose"][0] for c in range(self.num_cams)])
+            pred_cam = np.stack([joblib.load(osp.join(self.cams_dirs[c],
+                                self.cam_names[c]+"_pare",self.cam_names[c]+"_",
+                                "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_cam_t"][0] for c in range(self.num_cams)])
+            pare_res.append(np.stack([Rotation.from_matrix(pred_pose[:,i,:3,:3]).mean().as_rotvec() for i in range(1,22)]))
+            pare_orient.append(Rotation.from_matrix(pred_pose[:,0,:3,:3]).as_rotvec())
+            pare_cams.append(pred_cam)
 
-        # pare_cams = torch.from_numpy(np.stack(pare_cams)[0] * (self.cam_intr[:, 0, 0:1] + self.cam_intr[:, 1, 1:2]) / (2 * 5000)).unsqueeze(0).float()
-        # pare_pose = torch.from_numpy(np.stack(pare_res)).float()
-        # pare_orient = torch.from_numpy(np.stack(pare_orient,axis=1)).float()
+        pare_cams = torch.from_numpy(np.stack(pare_cams)[0] * (self.cam_intr[:, 0, 0:1] + self.cam_intr[:, 1, 1:2]) / (2 * 5000)).unsqueeze(0).float()
+        pare_pose = torch.from_numpy(np.stack(pare_res)).float()
+        pare_orient = torch.from_numpy(np.stack(pare_orient,axis=1)).float()
 
-        # return {"full_im_paths":full_img_pth_list, "j2d":j2d, "cam_intr":self.cam_intr, 
-        #         "pare_poses":pare_pose, "pare_orient":pare_orient,
-        #         "pare_cams":pare_cams}
+        return {"full_im_paths":full_img_pth_list, "j2d":j2d, "cam_intr":self.cam_intr, 
+                "pare_poses":pare_pose, "pare_orient":pare_orient,
+                "pare_cams":pare_cams}
 
-        return {"full_im_paths":full_img_pth_list, "j2d":j2d, "cam_intr":self.cam_intr}
+        # return {"full_im_paths":full_img_pth_list, "j2d":j2d, "cam_intr":self.cam_intr}
 
 
 
