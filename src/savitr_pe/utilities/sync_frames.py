@@ -23,13 +23,12 @@ def sync_audio(file0,file1,start_idx=[0,0],end_idx=[-1,-1]):
     w0 = np.array(audio0.get_array_of_samples())[start_idx[0]:end_idx[0]]/1e9
     w1 = np.array(audio1.get_array_of_samples())[start_idx[1]:end_idx[1]]/1e9
 
-    import ipdb; ipdb.set_trace()
-
     # correlation
     corr = np.correlate(w0,w1,"full")
 
     # get offset in ms
-    offset = 1000*(np.argmax(corr) - w1.shape[0])/audio0.frame_rate
+    offset = 1000*(np.argmax(corr) - w1.shape[0] - start_idx[0] + start_idx[1])/audio0.frame_rate
+
 
     return offset
 
@@ -38,7 +37,7 @@ def frame_extract_and_sync(vid_file,outdir,time_offset=0):
     '''
     vid_file: input video file
     outdir: target directory for saving frames
-    time_offset: offset to be applied to frame timestamps (in ms)
+    time_offset: offset to be applied to frame timestamps (in ns)
     '''
     # read file
     cap = cv2.VideoCapture(vid_file)
@@ -66,7 +65,7 @@ def frame_extract_and_sync(vid_file,outdir,time_offset=0):
         while(cap.isOpened()):
             frame_exists, curr_frame = cap.read()
             if frame_exists:
-                cv2.imwrite(os.path.join(outdir,"{:015d}".format(int(cap.get(cv2.CAP_PROP_POS_MSEC)+time_offset))+".jpg"),curr_frame)
+                cv2.imwrite(os.path.join(outdir,"{:015d}".format(int(cap.get(cv2.CAP_PROP_POS_MSEC)*1000000+time_offset))+".jpg"),curr_frame)
             else:
                 break
 

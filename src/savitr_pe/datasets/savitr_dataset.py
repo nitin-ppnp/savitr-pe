@@ -15,7 +15,7 @@ import joblib
 from scipy.spatial.transform import Rotation
 
 
-op_map2smpl = np.array([8,12,9,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
+op_map2smpl = np.array([8,-1,-1,-1,13,10,-1,14,11,-1,19,22,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 al_map2smpl = np.array([-1,11,8,-1,12,9,-1,13,10,-1,-1,-1,1,-1,-1,-1,5,2,6,3,7,4,-1,-1])
 dlc_map2smpl = np.array([-1,3,2,-1,4,1,-1,5,0,-1,-1,-1,-1,-1,-1,-1,9,8,10,7,11,6,-1,-1])
 
@@ -37,8 +37,8 @@ class savitr_dataset(Dataset):
             self.seq_len = seq_len
         
         # read time offset
-        t_offsets_fl = np.load(osp.join(dir_path,"t_offset.npz"))
-        t_offsets = [np.round(t_offsets_fl[x.split("/")[-2]]*1000000) for x in self.cams_dirs]   # first offset should be 0 ideally
+        audio_offsets_fl = np.load(osp.join(dir_path,"t_offset.npz"))
+        self.audio_offsets = [np.round(audio_offsets_fl[x.split("/")[-2]]*1000000) for x in self.cams_dirs]   # first offset should be 0
         
         
         # Image files dictionary with keys as timestamps
@@ -56,6 +56,7 @@ class savitr_dataset(Dataset):
         #         self.apose_res[i][x] = apose
         
         opose_res = [pkl.load(open(osp.join(self.cams_dirs[i],self.cam_names[i] + "_openpose.pkl"),"rb")) for i in range(len(self.cams_dirs))]
+
         self.opose_res = []
         for i in range(len(opose_res)):
             self.opose_res.append({})
@@ -74,9 +75,9 @@ class savitr_dataset(Dataset):
         self.tstamps = [np.array(sorted(self.opose_res[i].keys())) for i in range(len(self.opose_res))]
 
         # calculate clock offsets
-        clk_offsets = [int(self.tstamps[i][0]) - int(self.tstamps[0][0]) for i in range(len(self.tstamps))]
+        self.start_offsets = [int(self.tstamps[i][0]) - int(self.tstamps[0][0]) for i in range(len(self.tstamps))]
 
-        int_tstamps_offset_corr = [np.array(list(map(int,self.opose_res[i].keys()))).astype(np.long) + t_offsets[i] - clk_offsets[i] for i in range(len(self.opose_res))]
+        int_tstamps_offset_corr = [np.array(list(map(int,self.opose_res[i].keys()))).astype(np.long) + self.audio_offsets[i] - self.start_offsets[i] for i in range(len(self.opose_res))]
 
         # intersection of timeline
         tstamp_start = max([int_tstamps_offset_corr[i][0] for i in range(len(int_tstamps_offset_corr))])
@@ -86,7 +87,6 @@ class savitr_dataset(Dataset):
         # create final tstamps
         self.tstamps_final = [self.tstamps[0][isect_idcs[0]]]
         for i in range(1,len(int_tstamps_offset_corr)):
-            import ipdb; ipdb.set_trace()
             closest_idcs = np.array([(np.abs(int_tstamps_offset_corr[i]-x)).argmin() for x in int_tstamps_offset_corr[0][isect_idcs[0]]])
             self.tstamps_final.append(self.tstamps[i][closest_idcs])
             
@@ -170,16 +170,29 @@ class savitr_dataset(Dataset):
         pare_orient = []
         pare_cams = []
         for x in range(seq_len):
-            import ipdb; ipdb.set_trace()
-            pred_pose = np.stack([joblib.load(osp.join(self.cams_dirs[c],
-                                self.cam_names[c]+"_pare",self.cam_names[c]+"_",
-                                "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_pose"][0] for c in range(self.num_cams)])
-            pred_cam = np.stack([joblib.load(osp.join(self.cams_dirs[c],
-                                self.cam_names[c]+"_pare",self.cam_names[c]+"_",
-                                "pare_results",self.tstamps_final[c][index+x]+".pkl"))["pred_cam_t"][0] for c in range(self.num_cams)])
-            pare_res.append(np.stack([Rotation.from_matrix(pred_pose[:,i,:3,:3]).mean().as_rotvec() for i in range(1,22)]))
-            pare_orient.append(Rotation.from_matrix(pred_pose[:,0,:3,:3]).as_rotvec())
-            pare_cams.append(pred_cam)
+            pred_pose = []
+            pred_cam = []
+            for c in range(self.num_cams):
+                pare_file = osp.join(self.cams_dirs[c],
+                                        self.cam_names[c]+"_pare",self.cam_names[c]+"_",
+                                        "pare_results",self.tstamps_final[c][index+x]+".pkl")
+                if osp.exists(pare_file):
+                    pare_file_out = joblib.load(pare_file)
+                    pred_pose.append(pare_file_out["pred_pose"][0][:22])
+                    pred_cam.append(pare_file_out["pred_cam_t"][0])
+                elif x == 0:
+                    pred_pose.append(np.eye(3)[np.newaxis].repeat(22,axis=0))
+                    pred_cam.append(np.array([0,0,30]).astype(np.float32))
+                else:
+                    # print("pare pose not found for cam {}".format(c))
+                    pred_pose.append(pred_pose_last[c])
+                    pred_cam.append(pred_cam_last[c])
+            
+            pred_pose_last = np.stack(pred_pose)
+            pred_cam_last = np.stack(pred_cam)
+            pare_res.append(np.stack([Rotation.from_matrix(pred_pose_last[:,i,:3,:3]).mean().as_rotvec() for i in range(1,22)]))
+            pare_orient.append(Rotation.from_matrix(pred_pose_last[:,0,:3,:3]).as_rotvec())
+            pare_cams.append(pred_cam_last)
 
         pare_cams = torch.from_numpy(np.stack(pare_cams)[0] * (self.cam_intr[:, 0, 0:1] + self.cam_intr[:, 1, 1:2]) / (2 * 5000)).unsqueeze(0).float()
         pare_pose = torch.from_numpy(np.stack(pare_res)).float()

@@ -24,8 +24,8 @@ def prepare_dataset(dset_path,start_idx=None, end_idx=None):
     t_offset[str(mp4_files[0].split("/")[-2])] = 0
 
     # extract frames
-    for i in range(len(mp4_files)):
-        sync_frames.frame_extract_and_sync(mp4_files[i],mp4_files[i].split(".")[0])
+    # for i in range(len(mp4_files)):
+    #     sync_frames.frame_extract_and_sync(mp4_files[i],mp4_files[i].split(".")[0])
 
     # save offset file
     if not osp.exists(osp.join(dset_path,"t_offset")):
@@ -34,6 +34,7 @@ def prepare_dataset(dset_path,start_idx=None, end_idx=None):
         print("Offset file already exists")
 
 if __name__ == "__main__":
-    dset_path = "/home/nsaini/Datasets/opencam/VolleyDay"
+    dset_path = "/ps/project/datasets/AirCap_ICCV19/opencam/VolleyDay"
+    # prepare_dataset(dset_path,start_idx=[1050000,980000,1194000,940000],end_idx=[1070000,1000000,1198000,980000])
     prepare_dataset(dset_path,start_idx=[900000,900000,900000,900000],end_idx=[2100000,2100000,2100000,2100000])
     # prepare_dataset(dset_path)
